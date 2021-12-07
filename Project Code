@@ -1,0 +1,177 @@
+/*****************************************************************************
+* Name:        Sam Vila
+* Assignment:  Final Project 
+*****************************************************************************/
+
+/* 1) */
+
+%macro import_gapminder(mydataset1, path, mylibname);
+/* initialize the libname */
+libname &mylibname "&path";
+
+/* removing the '.csv' */
+data nocsv; 
+string = "&mydataset1"; 
+str = transtrn(string, ".csv", trimn("")); 
+call symputx("mydataset", str); 
+run; 
+
+/* import new dataset without the .csv */
+proc import out=mydataset datafile="&path&mydataset1" dbms=CSV replace;
+run;
+
+/* make it a permanent dataset */
+data &mylibname..&mydataset;
+set mydataset;
+run;
+%mend;
+
+
+%import_gapminder(child_mortality.csv, /home/u59504701/Final/, final);
+
+
+/* 2) */
+
+%macro reshape_gapminder(mydataset1, mylibname);
+/* initialize the libname */
+libname &mylibname "/home/u59504701/Final/";
+
+/* sort by country */
+proc sort data=&mylibname..&mydataset1;
+by country;
+run;
+
+/* transpose by country creating year var in mydataset1 */
+proc transpose data=&mylibname..&mydataset1 out=transposed name=year;
+by country;
+run;
+
+/* sort new transposed dataset by year */
+proc sort data=transposed;
+by year;
+run;
+
+/* making year var from char into numerical */
+data transposed;
+set transposed;
+num_year = input(year, best4.);
+drop year;
+/* rename new numeric year as old year */
+rename num_year=year;
+run;
+
+/* sort gapminder by year */
+proc sort data=&mylibname..gapminder_data;
+by year;
+run;
+
+/* merge datasets by year */
+data mygapminder;
+merge &mylibname..gapminder_data transposed;
+by year;
+run;
+
+/* create permanent dataset in mylibname */
+data &mylibname..mygapminder;
+set mygapminder;
+rename COL1=child_mortality;
+run;
+%mend;
+
+
+%reshape_gapminder(child_mortality, final);
+
+
+/* 3) */
+
+%macro visualize_gapminder(mylibname, varname, path, mystartyear, myendyear);
+
+
+/* if same year */
+%if &mystartyear = &myendyear %then %do;
+
+/* set the plot */
+data plot;
+set &mylibname..mygapminder;
+if year = &mystartyear; 
+/* pulls vars from start year */
+xLifeExpentancy = life_exp;
+yvar = &varname;
+run;
+
+data animation;
+function="text";
+label="&mystartyear";
+x1=54;
+y1=98;
+textweight="bold";
+run;
+
+/* set the out path */
+ods listing gpath = "&path";
+ods graphics / imagename = "Gapminder" imagefmt = png;
+
+/* proc sgplot to make the plot now */
+proc sgplot data = plot sganno=animation;
+
+/* graph parameters */
+title "&mystartyear Life Expentancy vs child mortality based off region";
+bubble x =xLifeExpentancy y=yvar size=population / group = four_regions;
+keylegend/ title = "Regions";
+xaxis label = "Life Expectancy" values=(0 to 100 by 10);
+yaxis label = "&varname" values=(0 to 500 by 10);
+run;
+
+
+/* ending the if same year */
+%end;
+
+/* if years not equal */
+%if &mystartyear < &myendyear %then %do;
+
+options nodate nonumber
+animduration = 0.5 animloop = yes noanimoverlay
+printerpath = gif animation = start;
+ods printer file = "&path.gapminder.gif";
+
+%do year = &mystartyear %to &myendyear;
+
+
+/* set the plot */
+data plot;
+set &mylibname..mygapminder;
+if year = &year;
+xLifeExpentancy = life_exp;
+yvar = &varname;
+run;
+data animation;
+function="text";
+label="years";
+x1=54;
+y1=98;
+textweight="bold";
+run;
+
+/* proc sgplot to make the plots now */
+proc sgplot data = plot sganno=animation;
+
+/* graph parameters */
+title "&year Life Expentancy vs Child Mortality based off region";
+bubble x =xLifeExpentancy y=yvar size=population / group = four_regions;
+keylegend/ title = "Regions";
+xaxis label = "Life Expectancy" values=(0 to 100 by 10);
+yaxis label = "&varname" values=(0 to 500 by 10);
+run;
+
+/* ending range graphs if statement */
+%end;
+
+options printerpath = gif animation = stop;
+ods printer close;
+
+%end;
+%mend;
+
+%visualize_gapminder(final, child_mortality, /home/u59504701/Final, 1990, 1990);
+%visualize_gapminder(final, child_mortality, /home/u59504701/Final, 1970, 2000);
+
